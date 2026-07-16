@@ -1,0 +1,6 @@
+{
+  "name": "Card-RANK",
+  "description": "TCG card pre-grader using Gemini API to estimate PSA grade and assess centering, corners, edges, and surface.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
