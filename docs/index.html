@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>쿠지 시리얼 스캐너</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: one narrow column — viewfinder on top, scan list below, sticky export bar at the bottom */
+:root {
+  --bg: #f4f3f8;
+  --surface: #ffffff;
+  --fg: #1c1a26;
+  --muted: #6b6880;
+  --line: #dddbe8;
+  --accent: #5b4fd6;
+  --accent-ink: #ffffff;
+  --ticket: #8f86e8;
+  --ok: #138a52;
+  --warn: #b26a00;
+  --bad: #c0304a;
+  --font-body: "IBM Plex Sans KR", system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14131b; --surface: #1d1c27; --fg: #ecebf5; --muted: #a09db5; --line: #2f2d3d;
+    --accent: #9a90ff; --accent-ink: #14131b; --ticket: #6f66c9; --ok: #3ccf8a; --warn: #f0a83a; --bad: #ff6b85;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14131b; --surface: #1d1c27; --fg: #ecebf5; --muted: #a09db5; --line: #2f2d3d;
+  --accent: #9a90ff; --accent-ink: #14131b; --ticket: #6f66c9; --ok: #3ccf8a; --warn: #f0a83a; --bad: #ff6b85;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 560px; margin: 0 auto; padding-block: 16px 96px; display: flex; flex-direction: column; gap: 16px; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+h1 { font-size: 20px; margin: 0; font-weight: 700; text-wrap: balance; }
+.count { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; }
+.count b { color: var(--fg); font-size: 18px; }
+
+.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--line); padding: 4px; border-radius: 10px; }
+.tabs button { border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 500; padding: 8px; border-radius: 7px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--fg); }
+
+.viewer { position: relative; width: 100%; aspect-ratio: 3 / 4; max-height: 62vh; background: #000; border-radius: 14px; overflow: hidden; }
+.viewer video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.roi {
+  position: absolute; left: 7%; width: 86%; top: 50%; aspect-ratio: 5.2 / 1; transform: translateY(-50%);
+  border: 2px solid #fff; border-radius: 6px; box-shadow: 0 0 0 9999px rgba(0,0,0,.45);
+  transition: border-color .15s;
+}
+.roi.hit { border-color: #3ccf8a; }
+.roi.dup { border-color: #f0a83a; }
+.roi-label { position: absolute; left: 0; right: 0; top: calc(50% + 11%); text-align: center; color: #fff; font-size: 13px; text-shadow: 0 1px 2px #000; padding-inline: 12px; }
+.reading { position: absolute; left: 0; right: 0; top: calc(50% - 22%); text-align: center; font-family: var(--font-mono); color: #fff; font-size: 15px; text-shadow: 0 1px 3px #000; min-height: 1.5em; }
+.start {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  background: linear-gradient(160deg, var(--ticket), #2a2550); color: #fff; text-align: center; padding: 24px;
+}
+.start p { margin: 0; max-width: 32ch; font-size: 14px; opacity: .9; }
+
+.btn {
+  border: 0; border-radius: 10px; padding: 11px 16px; font: inherit; font-weight: 700; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink);
+}
+.btn.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); font-weight: 500; }
+.btn.danger { background: var(--bad); color: #fff; }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn:focus-visible, .tabs button:focus-visible, input:focus-visible, .row button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.start .btn { background: #fff; color: #2a2550; }
+
+.status { font-size: 14px; color: var(--muted); min-height: 1.5em; }
+.status.ok { color: var(--ok); } .status.warn { color: var(--warn); } .status.bad { color: var(--bad); }
+
+.photo { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.photo p { margin: 0; color: var(--muted); font-size: 14px; }
+.photo .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.thumb { max-height: 180px; border-radius: 8px; object-fit: contain; align-self: flex-start; }
+
+.manual { display: flex; gap: 8px; }
+.manual input { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 16px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); text-transform: uppercase; }
+
+.list { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.list h2 { margin: 0; padding: 12px 16px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); font-weight: 500; }
+.row { display: grid; grid-template-columns: 2.2em 1fr auto auto; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.row:last-child { border-bottom: 0; }
+.row.new { animation: flash 1.2s ease-out; }
+@keyframes flash { from { background: color-mix(in srgb, var(--ok) 22%, transparent); } to { background: transparent; } }
+.idx { color: var(--muted); font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.serial { font-family: var(--font-mono); font-weight: 700; font-size: 16px; letter-spacing: .02em; min-width: 0; overflow-wrap: anywhere; }
+.serial .pre { color: var(--accent); }
+.meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.row button { border: 0; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; padding: 6px; cursor: pointer; border-radius: 6px; }
+.empty { padding: 20px 16px; color: var(--muted); font-size: 14px; }
+.example { opacity: .55; }
+
+.bar {
+  position: fixed; left: 0; right: 0; bottom: 0; background: var(--surface); border-top: 1px solid var(--line);
+  padding-top: 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.bar .inner { max-width: 560px; margin: 0 auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.bar .btn { flex: 1 1 auto; }
+@media (prefers-reduced-motion: reduce) { .row.new { animation: none; } .roi { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>쿠지 시리얼 스캐너</h1>
+    <div class="count"><b id="count">0</b> 장</div>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button id="tab-live" role="tab" aria-selected="true">실시간 스캔</button>
+    <button id="tab-photo" role="tab" aria-selected="false">사진으로 추출</button>
+  </div>
+
+  <section id="pane-live">
+    <div class="viewer">
+      <video id="video" playsinline muted></video>
+      <div class="roi" id="roi"></div>
+      <div class="reading" id="reading"></div>
+      <div class="roi-label">キャンペーンナンバー 칸을 박스에 맞추세요</div>
+      <div class="start" id="start">
+        <p>카메라를 시리얼 칸에 대면 자동으로 읽어서 목록에 추가합니다. 같은 값이 2번 연속 읽혀야 저장돼요.</p>
+        <button class="btn" id="btn-start">카메라 켜기</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="pane-photo" class="photo" hidden>
+    <p id="photo-help">카드 1~6장을 가깝게 찍으면 사진 속 시리얼을 한 번에 뽑아냅니다. 뒤집힌 카드도 읽어요.</p>
+    <div class="actions">
+      <label class="btn" for="file-cam">사진 찍기</label>
+      <label class="btn ghost" for="file-pick">앨범에서 선택</label>
+    </div>
+    <input id="file-cam" type="file" accept="image/*" capture="environment" hidden>
+    <input id="file-pick" type="file" accept="image/*" multiple hidden>
+    <img id="thumb" class="thumb" alt="" hidden>
+  </section>
+
+  <div class="status" id="status" role="status"></div>
+
+  <form class="manual" id="manual">
+    <input id="manual-input" placeholder="NMGZ-1621505505" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="시리얼 직접 입력">
+    <button class="btn ghost" type="submit">추가</button>
+  </form>
+
+  <div class="list" id="list"></div>
+</div>
+
+<div class="bar">
+  <div class="inner">
+    <button class="btn" id="btn-copy">전체 복사</button>
+    <button class="btn ghost" id="btn-csv">CSV 저장</button>
+    <button class="btn ghost" id="btn-clear">모두 지우기</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+(() => {
+  const KEY = "kuji-serials-v1";
+  const SERIAL_RE = /^[A-Z]{4}-\d{10}$/;
+  const $ = (id) => document.getElementById(id);
+  const inViewer = !!window.claude;
+
+  // ---------- storage ----------
+  let items = [];
+  try { items = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { items = []; }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(items)); } catch {} };
+
+  // ---------- serial parsing ----------
+  // 영문 자리에 숫자처럼 읽힌 글자, 숫자 자리에 영문처럼 읽힌 글자를 위치 기준으로 보정
+  const TO_LETTER = { "0": "O", "1": "I", "2": "Z", "4": "A", "5": "S", "6": "G", "8": "B" };
+  const TO_DIGIT = { O: "0", Q: "0", D: "0", U: "0", I: "1", L: "1", T: "1", J: "1", Z: "2", S: "5", B: "8", G: "6", A: "4" };
+
+  function fixParts(head, tail) {
+    const h = [...head].map((c) => TO_LETTER[c] || c).join("");
+    const t = [...tail].map((c) => TO_DIGIT[c] || c).join("");
+    const s = h + "-" + t;
+    return SERIAL_RE.test(s) ? s : null;
+  }
+
+  function extractSerials(raw) {
+    const out = new Set();
+    const text = String(raw).toUpperCase().replace(/[–—―ー一_~=]/g, "-");
+    // 공백을 다 붙인 버전(글자 사이가 벌어진 경우)과 공백을 경계로 둔 버전(옆에 다른 글자가 붙은 경우)을 모두 시도
+    const variants = text.split(/\n/).flatMap((line) => [line.replace(/[^A-Z0-9-]/g, ""), line.replace(/[^A-Z0-9-]+/g, " ")]);
+    for (const v of variants) {
+      const re = /(?<![A-Z0-9])([A-Z0-9]{4}) ?-+ ?([A-Z0-9]{10})(?![A-Z0-9])|(?<![A-Z0-9-])([A-Z0-9]{4})([A-Z0-9]{10})(?![A-Z0-9])/g;
+      let m;
+      while ((m = re.exec(v))) {
+        const s = m[1] ? fixParts(m[1], m[2]) : fixParts(m[3], m[4]);
+        if (s) out.add(s);
+      }
+    }
+    return [...out];
+  }
+
+  // ---------- list ----------
+  let lastAdded = null;
+  function add(serial, src) {
+    if (items.some((it) => it.serial === serial)) return false;
+    items.unshift({ serial, at: Date.now(), src });
+    lastAdded = serial;
+    save(); render();
+    return true;
+  }
+
+  function fmtTime(t) {
+    const d = new Date(t);
+    return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  function render() {
+    $("count").textContent = items.length;
+    const list = $("list");
+    list.textContent = "";
+    const h = document.createElement("h2");
+    h.textContent = "스캔한 시리얼";
+    list.append(h);
+    if (!items.length) {
+      const e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "아직 없어요. 스캔하면 여기에 쌓입니다. 아래는 형식 예시예요.";
+      list.append(e);
+      list.append(makeRow({ serial: "NMGZ-1621505505", at: null }, "예", true));
+      return;
+    }
+    items.forEach((it, i) => list.append(makeRow(it, items.length - i, false)));
+    lastAdded = null;
+  }
+
+  function makeRow(it, n, example) {
+    const row = document.createElement("div");
+    row.className = "row" + (example ? " example" : "") + (it.serial === lastAdded ? " new" : "");
+    const idx = document.createElement("span"); idx.className = "idx"; idx.textContent = n;
+    const s = document.createElement("span"); s.className = "serial";
+    const pre = document.createElement("span"); pre.className = "pre"; pre.textContent = it.serial.slice(0, 4);
+    s.append(pre, document.createTextNode(it.serial.slice(4)));
+    const meta = document.createElement("span"); meta.className = "meta";
+    meta.textContent = it.at ? fmtTime(it.at) : "";
+    row.append(idx, s, meta);
+    if (!example) {
+      const del = document.createElement("button");
+      del.textContent = "×"; del.setAttribute("aria-label", it.serial + " 삭제");
+      del.onclick = () => { items = items.filter((x) => x.serial !== it.serial); save(); render(); };
+      row.append(del);
+    } else row.append(document.createElement("span"));
+    return row;
+  }
+
+  function status(msg, kind = "") { const el = $("status"); el.textContent = msg; el.className = "status " + kind; }
+
+  // ---------- feedback ----------
+  let audio = null;
+  function beep(freq = 1200) {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.frequency.value = freq; g.gain.value = 0.08;
+      o.connect(g); g.connect(audio.destination);
+      o.start(); o.stop(audio.currentTime + 0.08);
+    } catch {}
+    try { navigator.vibrate && navigator.vibrate(60); } catch {}
+  }
+
+  // ---------- tabs ----------
+  function setTab(name) {
+    $("tab-live").setAttribute("aria-selected", name === "live");
+    $("tab-photo").setAttribute("aria-selected", name === "photo");
+    $("pane-live").hidden = name !== "live";
+    $("pane-photo").hidden = name !== "photo";
+    if (name !== "live") stopLive();
+  }
+  $("tab-live").onclick = () => setTab("live");
+  $("tab-photo").onclick = () => setTab("photo");
+
+  // ---------- OCR worker (Tesseract) ----------
+  let worker = null;
+  async function getWorker() {
+    if (worker) return worker;
+    if (!window.Tesseract) throw new Error("OCR 엔진을 불러오지 못했어요");
+    status("OCR 엔진 준비 중… (처음 한 번만 몇 초 걸려요)");
+    worker = await Tesseract.createWorker("eng", 1);
+    await worker.setParameters({
+      tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-",
+      tessedit_pageseg_mode: "7",
+    });
+    return worker;
+  }
+
+  // ---------- live scan ----------
+  let stream = null, running = false;
+  const recent = [];
+  let dupNoticeAt = 0;
+  const roiCanvas = document.createElement("canvas");
+
+  async function startLive() {
+    $("btn-start").disabled = true;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false,
+      });
+    } catch (e) {
+      $("btn-start").disabled = false;
+      if (inViewer) {
+        status("이 화면에서는 실시간 카메라를 쓸 수 없어요. ‘사진으로 추출’ 탭을 쓰거나, 안내받은 실시간 버전 링크를 브라우저에서 여세요.", "warn");
+        setTab("photo");
+      } else {
+        status("카메라를 켤 수 없어요. 브라우저의 카메라 권한을 허용했는지 확인하세요. (" + (e.name || e) + ")", "bad");
+      }
+      return;
+    }
+    const video = $("video");
+    video.srcObject = stream;
+    await video.play();
+    $("start").hidden = true;
+    try { await navigator.wakeLock?.request("screen"); } catch {}
+    try { await getWorker(); } catch (e) { status(e.message, "bad"); return; }
+    status("스캔 중 — 시리얼 칸을 박스에 맞추세요");
+    running = true;
+    loop();
+  }
+
+  function stopLive() {
+    running = false;
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+    $("start").hidden = false;
+    $("btn-start").disabled = false;
+    $("reading").textContent = "";
+  }
+
+  function grabRoi() {
+    const video = $("video"), box = video.getBoundingClientRect(), r = $("roi").getBoundingClientRect();
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw) return null;
+    const scale = Math.max(box.width / vw, box.height / vh);
+    const ox = (box.width - vw * scale) / 2, oy = (box.height - vh * scale) / 2;
+    const sx = (r.left - box.left - ox) / scale, sy = (r.top - box.top - oy) / scale;
+    const sw = r.width / scale, sh = r.height / scale;
+    const outW = 1100, outH = Math.round(outW * sh / sw);
+    roiCanvas.width = outW; roiCanvas.height = outH;
+    const ctx = roiCanvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outW, outH);
+    // 흑백 + 대비 늘리기
+    const img = ctx.getImageData(0, 0, outW, outH), d = img.data;
+    let min = 255, max = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const y = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      d[i] = y; if (y < min) min = y; if (y > max) max = y;
+    }
+    const k = 255 / Math.max(1, max - min);
+    for (let i = 0; i < d.length; i += 4) { const v = (d[i] - min) * k; d[i] = d[i + 1] = d[i + 2] = v; }
+    ctx.putImageData(img, 0, 0);
+    return roiCanvas;
+  }
+
+  async function loop() {
+    while (running) {
+      const c = grabRoi();
+      if (!c) { await new Promise((r) => setTimeout(r, 100)); continue; }
+      let text = "";
+      try { text = (await worker.recognize(c)).data.text; } catch { /* 다음 프레임에서 재시도 */ }
+      if (!running) break;
+      const found = extractSerials(text);
+      $("reading").textContent = found[0] || text.trim().slice(0, 24);
+      handleLive(found[0] || null);
+      await new Promise((r) => setTimeout(r, 60));
+    }
+  }
+
+  function handleLive(serial) {
+    recent.push(serial);
+    if (recent.length > 4) recent.shift();
+    if (!serial) return;
+    const hits = recent.filter((x) => x === serial).length;
+    if (hits < 2) return;
+    const roi = $("roi");
+    if (add(serial, "live")) {
+      beep(1400);
+      status("추가됨 " + serial, "ok");
+      roi.className = "roi hit";
+      recent.length = 0;
+    } else if (Date.now() - dupNoticeAt > 1500) {
+      dupNoticeAt = Date.now();
+      status("이미 목록에 있음 " + serial, "warn");
+      roi.className = "roi dup";
+    }
+    setTimeout(() => (roi.className = "roi"), 500);
+  }
+
+  $("btn-start").onclick = startLive;
+
+  // ---------- photo extract ----------
+  let samplePromise = window.claude?.use ? window.claude.use("sample").catch(() => null) : Promise.resolve(null);
+  let sampleCanImages = samplePromise.then(async (s) => (s ? !!(await s.limits().catch(() => null))?.images : false));
+
+  async function extractWithClaude(sample, files) {
+    const prompt =
+      "The images show Japanese Ichiban Kuji tickets. Each has a 'キャンペーンナンバー' campaign number printed in a white box. " +
+      "Extract every campaign number visible, including tickets that are upside down or rotated. " +
+      "Format is exactly 4 uppercase letters, a hyphen, 10 digits (example: NMGZ-1621505505). " +
+      "Never guess: if any character is not clearly legible, put that number in \"unclear\" with ? for each unreadable character. " +
+      'Reply with only JSON: {"serials": ["..."], "unclear": ["..."]}';
+    const res = await sample.json(prompt, { images: files });
+    const serials = (res?.serials || []).flatMap((s) => extractSerials(s));
+    return { serials, unclear: res?.unclear || [] };
+  }
+
+  async function extractWithTesseract(files) {
+    const w = await getWorker();
+    await w.setParameters({ tessedit_pageseg_mode: "11" });
+    const serials = [];
+    try {
+      for (const f of files) serials.push(...extractSerials((await w.recognize(f)).data.text));
+    } finally {
+      await w.setParameters({ tessedit_pageseg_mode: "7" });
+    }
+    return { serials, unclear: [] };
+  }
+
+  async function onFiles(fileList) {
+    const files = [...fileList];
+    if (!files.length) return;
+    const t = $("thumb");
+    t.src = URL.createObjectURL(files[0]); t.hidden = false;
+    status("읽는 중…");
+    try {
+      const sample = await samplePromise;
+      const r = sample && (await sampleCanImages) ? await extractWithClaude(sample, files) : await extractWithTesseract(files);
+      let added = 0, dup = 0;
+      for (const s of r.serials) add(s, "photo") ? added++ : dup++;
+      let msg = `${r.serials.length}개 찾음 · ${added}개 추가`;
+      if (dup) msg += ` · ${dup}개 중복`;
+      if (r.unclear.length) msg += ` · 확인 필요: ${r.unclear.join(", ")} (직접 입력하세요)`;
+      if (added) beep(1400);
+      status(msg, r.serials.length ? (r.unclear.length ? "warn" : "ok") : "bad");
+      if (!r.serials.length && !r.unclear.length) status("시리얼을 찾지 못했어요. 더 가깝게, 반사광 없이 다시 찍어 보세요.", "bad");
+    } catch (e) {
+      const code = e?.code;
+      if (code === "not_granted") status("Claude 사용이 허용되지 않아 사진에서 읽을 수 없어요.", "bad");
+      else if (code === "rate_limited") status("요청이 많아요. 잠시 후 다시 시도하세요.", "warn");
+      else status("읽기 실패: " + (e?.message || e), "bad");
+    }
+  }
+  $("file-cam").onchange = (e) => { onFiles(e.target.files); e.target.value = ""; };
+  $("file-pick").onchange = (e) => { onFiles(e.target.files); e.target.value = ""; };
+
+  // ---------- manual ----------
+  $("manual").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = $("manual-input").value;
+    const s = extractSerials(v)[0];
+    if (!s) { status("형식이 맞지 않아요: 영문 4자리-숫자 10자리", "bad"); return; }
+    const ok = add(s, "manual");
+    status(ok ? "추가됨 " + s : "이미 목록에 있음 " + s, ok ? "ok" : "warn");
+    $("manual-input").value = "";
+  });
+
+  // ---------- export ----------
+  $("btn-copy").onclick = async () => {
+    const text = items.map((x) => x.serial).reverse().join("\n");
+    if (!text) return status("복사할 시리얼이 없어요", "warn");
+    try { await navigator.clipboard.writeText(text); status(`${items.length}개 복사됨`, "ok"); }
+    catch {
+      const ta = document.createElement("textarea"); ta.value = text; document.body.append(ta); ta.select();
+      try { document.execCommand("copy"); status(`${items.length}개 복사됨`, "ok"); } catch { status("복사 실패 — 목록을 길게 눌러 직접 복사하세요", "bad"); }
+      ta.remove();
+    }
+  };
+
+  const downloadsPromise = window.claude?.use ? window.claude.use("downloads").catch(() => null) : Promise.resolve(null);
+  if (inViewer) downloadsPromise.then((d) => { if (!d) $("btn-csv").hidden = true; });
+  $("btn-csv").onclick = async () => {
+    if (!items.length) return status("저장할 시리얼이 없어요", "warn");
+    const rows = [["no", "serial", "scanned_at", "source"]].concat(
+      items.slice().reverse().map((x, i) => [i + 1, x.serial, new Date(x.at).toISOString(), x.src])
+    );
+    const csv = "﻿" + rows.map((r) => r.join(",")).join("\n");
+    const name = "kuji-serials-" + new Date().toISOString().slice(0, 10) + ".csv";
+    const dl = await downloadsPromise;
+    try {
+      if (dl) await dl.save({ filename: name, data: new Blob([csv], { type: "text/csv" }) });
+      else {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = name; a.click();
+      }
+    } catch { status("저장이 취소됐어요", "warn"); }
+  };
+
+  let clearArmed = 0;
+  $("btn-clear").onclick = () => {
+    if (!items.length) return;
+    if (Date.now() - clearArmed < 3000) {
+      items = []; save(); render(); status("모두 지웠어요"); $("btn-clear").textContent = "모두 지우기"; $("btn-clear").className = "btn ghost";
+    } else {
+      clearArmed = Date.now();
+      $("btn-clear").textContent = "한 번 더 누르면 삭제"; $("btn-clear").className = "btn danger";
+      setTimeout(() => { $("btn-clear").textContent = "모두 지우기"; $("btn-clear").className = "btn ghost"; }, 3000);
+    }
+  };
+
+  render();
+})();
+</script>
+
+</body>
+</html>
