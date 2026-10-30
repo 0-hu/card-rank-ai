@@ -46,7 +46,7 @@ body {
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
-.wrap { max-width: 560px; margin: 0 auto; padding-block: 16px 96px; display: flex; flex-direction: column; gap: 16px; }
+.wrap { max-width: 720px; margin: 0 auto; padding-block: 16px 96px; display: flex; flex-direction: column; gap: 16px; }
 header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 h1 { font-size: 20px; margin: 0; font-weight: 700; text-wrap: balance; }
 .count { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; }
@@ -58,15 +58,21 @@ h1 { font-size: 20px; margin: 0; font-weight: 700; text-wrap: balance; }
 
 .viewer { position: relative; width: 100%; aspect-ratio: 3 / 4; max-height: 62vh; background: #000; border-radius: 14px; overflow: hidden; }
 .viewer video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.viewer video.mirror { transform: scaleX(-1); }
 .roi {
-  position: absolute; left: 7%; width: 86%; top: 50%; aspect-ratio: 3.4 / 1; transform: translateY(-50%);
+  position: absolute; left: 50%; width: var(--roi-w, 86%); top: 50%; aspect-ratio: 3.4 / 1; transform: translate(-50%, -50%);
   border: 2px solid #fff; border-radius: 6px; box-shadow: 0 0 0 9999px rgba(0,0,0,.45);
   transition: border-color .15s;
 }
 .roi.hit { border-color: #3ccf8a; }
 .roi.dup { border-color: #f0a83a; }
-.roi-label { position: absolute; left: 0; right: 0; top: calc(50% + 15%); text-align: center; color: #fff; font-size: 13px; text-shadow: 0 1px 2px #000; padding-inline: 12px; }
-.reading { position: absolute; left: 0; right: 0; top: calc(50% - 24%); text-align: center; font-family: var(--font-mono); color: #fff; font-size: 15px; text-shadow: 0 1px 3px #000; min-height: 1.5em; }
+.roi-label { position: absolute; left: 50%; transform: translateX(-50%); width: max-content; max-width: 92vw; top: calc(100% + 8px); text-align: center; color: #fff; font-size: 13px; text-shadow: 0 1px 2px #000; padding-inline: 12px; }
+.reading { position: absolute; left: 50%; transform: translateX(-50%); width: max-content; bottom: calc(100% + 8px); text-align: center; font-family: var(--font-mono); color: #fff; font-size: 15px; text-shadow: 0 1px 3px #000; min-height: 1.5em; }
+.camctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-top: 10px; font-size: 14px; color: var(--muted); }
+.camctl label { display: inline-flex; align-items: center; gap: 6px; }
+.camctl select { font: inherit; max-width: 100%; min-width: 0; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); }
+.camctl input[type=range] { width: 120px; accent-color: var(--accent); }
+.camctl input[type=checkbox] { accent-color: var(--accent); }
 .start {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
   background: linear-gradient(160deg, var(--ticket), #2a2550); color: #fff; text-align: center; padding: 24px;
@@ -113,7 +119,7 @@ h1 { font-size: 20px; margin: 0; font-weight: 700; text-wrap: balance; }
   padding-top: 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
-.bar .inner { max-width: 560px; margin: 0 auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.bar .inner { max-width: 720px; margin: 0 auto; display: flex; gap: 8px; flex-wrap: wrap; }
 .bar .btn { flex: 1 1 auto; }
 @media (prefers-reduced-motion: reduce) { .row.new { animation: none; } .roi { transition: none; } }
 </style>
@@ -132,13 +138,19 @@ h1 { font-size: 20px; margin: 0; font-weight: 700; text-wrap: balance; }
   <section id="pane-live">
     <div class="viewer">
       <video id="video" playsinline muted></video>
-      <div class="roi" id="roi"></div>
-      <div class="reading" id="reading"></div>
-      <div class="roi-label">キャンペーンナンバー 칸을 박스에 맞추세요</div>
+      <div class="roi" id="roi">
+        <div class="reading" id="reading"></div>
+        <div class="roi-label">キャンペーンナンバー 칸을 박스에 맞추세요</div>
+      </div>
       <div class="start" id="start">
-        <p>카메라를 시리얼 칸에 대면 자동으로 읽어서 목록에 추가합니다. 같은 값이 2번 연속 읽혀야 저장돼요.</p>
+        <p>카메라를 시리얼 칸에 대면 자동으로 읽어서 목록에 추가합니다. 여러 번 읽어서 결과가 일치할 때만 저장돼요.</p>
         <button class="btn" id="btn-start">카메라 켜기</button>
       </div>
+    </div>
+    <div class="camctl" id="camctl" hidden>
+      <label id="cam-wrap" hidden>카메라 <select id="cam-select"></select></label>
+      <label><input type="checkbox" id="mirror"> 좌우 반전</label>
+      <label>박스 크기 <input type="range" id="roi-size" min="35" max="92" value="86"></label>
     </div>
   </section>
 
@@ -202,7 +214,7 @@ h1 { font-size: 20px; margin: 0; font-weight: 700; text-wrap: balance; }
     // 공백을 다 붙인 버전(글자 사이가 벌어진 경우)과 공백을 경계로 둔 버전(옆에 다른 글자가 붙은 경우)을 모두 시도
     const variants = text.split(/\n/).flatMap((line) => [line.replace(/[^A-Z0-9-]/g, ""), line.replace(/[^A-Z0-9-]+/g, " ")]);
     for (const v of variants) {
-      const re = /(?<![A-Z0-9])([A-Z0-9]{4}) ?-+ ?([A-Z0-9]{10})(?![A-Z0-9])|(?<![A-Z0-9-])([A-Z0-9]{4})([A-Z0-9]{10})(?![A-Z0-9])/g;
+      const re = /([A-Z0-9]{4}) ?-+ ?([A-Z0-9]{10})(?![A-Z0-9])|(?<![A-Z0-9-])([A-Z0-9]{4})([A-Z0-9]{10})(?![A-Z0-9])/g;
       let m;
       while ((m = re.exec(v))) {
         const s = m[1] ? fixParts(m[1], m[2]) : fixParts(m[3], m[4]);
@@ -311,13 +323,16 @@ h1 { font-size: 20px; margin: 0; font-weight: 700; text-wrap: balance; }
   let dupNoticeAt = 0;
   const roiCanvas = document.createElement("canvas");
 
-  async function startLive() {
+  let loopGen = 0;
+
+  async function startLive(deviceId) {
     $("btn-start").disabled = true;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false,
-      });
+      // 폰은 후면 카메라, 노트북은 있는 카메라(웹캠)로 자동 선택. 특정 카메라를 고르면 그걸로.
+      const video = deviceId
+        ? { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+        : { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } };
+      stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
     } catch (e) {
       $("btn-start").disabled = false;
       if (inViewer) {
@@ -332,15 +347,18 @@ h1 { font-size: 20px; margin: 0; font-weight: 700; text-wrap: balance; }
     video.srcObject = stream;
     await video.play();
     $("start").hidden = true;
+    setupCameraUi(stream.getVideoTracks()[0]);
     try { await navigator.wakeLock?.request("screen"); } catch {}
     try { await getWorker(); } catch (e) { status(e.message, "bad"); return; }
     status("스캔 중 — 시리얼 칸을 박스에 맞추세요");
     running = true;
-    loop();
+    loop(++loopGen);
   }
 
   function stopLive() {
     running = false;
+    loopGen++;
+    $("camctl").hidden = true;
     if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
     $("start").hidden = false;
     $("btn-start").disabled = false;
@@ -349,7 +367,13 @@ h1 { font-size: 20px; margin: 0; font-weight: 700; text-wrap: balance; }
 
   // 카드가 살짝 기울어 있으면 인식이 크게 떨어지므로 프레임마다 각도를 바꿔 가며 읽는다
   const ANGLES = [0, 5, -5, 9, -9, 2, -2];
-  let angleIdx = 0;
+  let angleIdx = 0, goodAngle = null;
+  // 한 번 읽힌 각도가 있으면 그 근처를 번갈아 집중적으로 읽는다
+  function nextAngle() {
+    angleIdx++;
+    if (goodAngle !== null && angleIdx % 2) return goodAngle + (Math.random() * 4 - 2);
+    return ANGLES[angleIdx % ANGLES.length];
+  }
 
   function grabRoi(angleDeg) {
     const video = $("video"), box = video.getBoundingClientRect(), r = $("roi").getBoundingClientRect();
@@ -382,42 +406,98 @@ h1 { font-size: 20px; margin: 0; font-weight: 700; text-wrap: balance; }
     return roiCanvas;
   }
 
-  async function loop() {
-    while (running) {
-      const angle = ANGLES[angleIdx++ % ANGLES.length];
+  // 카메라 종류에 맞춰 화면 비율, 좌우 반전, 박스 크기를 맞추고 카메라 목록을 채운다
+  async function setupCameraUi(track) {
+    const video = $("video"), set = track.getSettings ? track.getSettings() : {};
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (vw && vh) $("pane-live").querySelector(".viewer").style.aspectRatio = vw + " / " + vh;
+    const landscape = vw > vh;
+    // 전면/노트북 웹캠은 거울처럼 보여야 카드를 움직이기 편하다 (화면만 반전, 인식은 원본으로)
+    const mirror = set.facingMode ? set.facingMode !== "environment" : landscape;
+    $("mirror").checked = mirror;
+    video.classList.toggle("mirror", mirror);
+    // 웹캠은 초점 때문에 카드를 멀리 대야 하니 박스를 작게 시작
+    const size = landscape ? 55 : 86;
+    $("roi-size").value = size;
+    $("roi").style.setProperty("--roi-w", size + "%");
+    $("camctl").hidden = false;
+    try {
+      const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+      const sel = $("cam-select");
+      sel.textContent = "";
+      cams.forEach((c, i) => {
+        const o = document.createElement("option");
+        o.value = c.deviceId; o.textContent = c.label || "카메라 " + (i + 1);
+        if (c.deviceId === set.deviceId) o.selected = true;
+        sel.append(o);
+      });
+      $("cam-wrap").hidden = cams.length < 2;
+    } catch {}
+  }
+
+  $("mirror").onchange = (e) => $("video").classList.toggle("mirror", e.target.checked);
+  $("roi-size").oninput = (e) => $("roi").style.setProperty("--roi-w", e.target.value + "%");
+  $("cam-select").onchange = (e) => {
+    running = false; loopGen++;
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+    startLive(e.target.value);
+  };
+
+  async function loop(gen) {
+    while (running && gen === loopGen) {
+      const angle = nextAngle();
       const c = grabRoi(angle);
       if (!c) { await new Promise((r) => setTimeout(r, 100)); continue; }
       let text = "";
       try { text = (await worker.recognize(c)).data.text; } catch { /* 다음 프레임에서 재시도 */ }
-      if (!running) break;
+      if (!running || gen !== loopGen) break;
       const found = extractSerials(text);
+      if (found[0]) goodAngle = angle;
       if (found[0]) $("reading").textContent = found[0];
       handleLive(found[0] || null);
       await new Promise((r) => setTimeout(r, 60));
     }
   }
 
+  // 한두 번 같은 오독이 나와도 저장되지 않도록, 최근 읽은 값들을 자리별로 다수결해서 확정한다
+  const MIN_READS = 3, AGREE = 0.6;
+  function consensus(reads) {
+    let out = "";
+    for (let i = 0; i < reads[0].length; i++) {
+      const cnt = {};
+      for (const r of reads) cnt[r[i]] = (cnt[r[i]] || 0) + 1;
+      const [ch, n] = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
+      if (n / reads.length < AGREE) return null;
+      out += ch;
+    }
+    return out;
+  }
+
   function handleLive(serial) {
     recent.push(serial);
-    if (recent.length > ANGLES.length) recent.shift();
+    if (recent.length > ANGLES.length * 2) recent.shift();
+    // 카드를 치우면 (연속으로 못 읽으면) 이전 카드의 기록을 비운다
+    if (recent.length >= 5 && recent.slice(-5).every((x) => !x)) { recent.length = 0; goodAngle = null; }
     if (!serial) return;
-    const hits = recent.filter((x) => x === serial).length;
-    if (hits < 2) return;
+    const reads = recent.filter(Boolean);
+    if (reads.length < MIN_READS) return;
+    const best = consensus(reads);
+    if (!best || !reads.includes(best)) return;
     const roi = $("roi");
-    if (add(serial, "live")) {
+    recent.length = 0;
+    if (add(best, "live")) {
       beep(1400);
-      status("추가됨 " + serial, "ok");
+      status("추가됨 " + best, "ok");
       roi.className = "roi hit";
-      recent.length = 0;
     } else if (Date.now() - dupNoticeAt > 1500) {
       dupNoticeAt = Date.now();
-      status("이미 목록에 있음 " + serial, "warn");
+      status("이미 목록에 있음 " + best, "warn");
       roi.className = "roi dup";
     }
     setTimeout(() => (roi.className = "roi"), 500);
   }
 
-  $("btn-start").onclick = startLive;
+  $("btn-start").onclick = () => startLive();
 
   // ---------- photo extract ----------
   let samplePromise = window.claude?.use ? window.claude.use("sample").catch(() => null) : Promise.resolve(null);
